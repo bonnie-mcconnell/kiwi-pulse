@@ -19,13 +19,13 @@ class RawTextInput(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     title: str = Field(..., min_length=1, description="Article headline")
     content: str = Field(..., min_length=10, description="Article body text")
-    source: str = Field(..., min_length=1, description="Origin of the article, e.g 'Reuters'")
+    source: str = Field(..., min_length=1, description="Origin of the article, e.g. 'Reuters'")
     timestamp: datetime = Field(..., description="Publication time (UTC)")
 
     @field_validator("timestamp")
     @classmethod
     def timestamp_not_future(cls, v: datetime) -> datetime:
-        # Normalise to UTC for comparison
+        # Normalise to UTC for comparison - naive datetimes are assumed UTC
         now = datetime.now(timezone.utc)
         v_aware = v if v.tzinfo else v.replace(tzinfo=timezone.utc)
         if v_aware > now:
@@ -33,6 +33,7 @@ class RawTextInput(BaseModel):
         return v_aware
 
     def to_dict(self) -> dict:
+        # Wraps model_dump so callers don't need to know Pydantic internals
         return self.model_dump(mode="json")
 
 
@@ -49,7 +50,10 @@ class SentimentObservation(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     raw_id: UUID = Field(..., description="References the RawTextInput this was derived from")
-    sentiment_score: float = Field(..., description="Sentiment in [-1.0, 1.0]. -1 = very bearish, 1 = very bullish")
+    sentiment_score: float = Field(
+        ...,
+        description="Sentiment in [-1.0, 1.0]. -1 = very bearish, 1 = very bullish",
+    )
     reasoning: str = Field(..., min_length=1, description="LLM explanation for the assigned score")
 
     @field_validator("sentiment_score")
@@ -60,6 +64,7 @@ class SentimentObservation(BaseModel):
         return round(v, 4)  # normalise float precision from LLM JSON serialisation
 
     def to_dict(self) -> dict:
+        # Wraps model_dump so callers don't need to know Pydantic internals
         return self.model_dump(mode="json")
 
 
@@ -75,11 +80,15 @@ class MarketEstimate(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    mean: float = Field(..., description="Posterior mean — best estimate of true sentiment")
+    mean: float = Field(..., description="Posterior mean - best estimate of true sentiment")
     lower_bound: float = Field(..., description="Lower bound of 95% credible interval")
     upper_bound: float = Field(..., description="Upper bound of 95% credible interval")
-    variance: float = Field(..., ge=0.0, description="Posterior variance - measure of remaining uncertainty. " \
-    "Near-zero values are valid and handled in bayesian_model.py.")
+    variance: float = Field(
+        ...,
+        ge=0.0,
+        description="Posterior variance - measure of remaining uncertainty. "
+                    "Near-zero values are valid and handled in bayesian_model.py.",
+    )
     sample_size: int = Field(..., ge=1, description="Number of sentiment observations used")
 
     @model_validator(mode="after")
@@ -92,5 +101,5 @@ class MarketEstimate(BaseModel):
         return self
 
     def to_dict(self) -> dict:
+        # Wraps model_dump so callers don't need to know Pydantic internals
         return self.model_dump(mode="json")
-
