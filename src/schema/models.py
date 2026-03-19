@@ -57,7 +57,7 @@ class SentimentObservation(BaseModel):
     def score_in_range(cls, v: float) -> float:
         if not -1.0 <= v <= 1.0:
             raise ValueError(f"sentiment_score must be in [-1, 1], got {v}")
-        return round(v, 4)  # normalise precision
+        return round(v, 4)  # normalise float precision from LLM JSON serialisation
 
     def to_dict(self) -> dict:
         return self.model_dump(mode="json")
@@ -78,7 +78,8 @@ class MarketEstimate(BaseModel):
     mean: float = Field(..., description="Posterior mean — best estimate of true sentiment")
     lower_bound: float = Field(..., description="Lower bound of 95% credible interval")
     upper_bound: float = Field(..., description="Upper bound of 95% credible interval")
-    variance: float = Field(..., ge=0.0, description="Posterior variance — measure of remaining uncertainty")
+    variance: float = Field(..., ge=0.0, description="Posterior variance - measure of remaining uncertainty. " \
+    "Near-zero values are valid and handled in bayesian_model.py.")
     sample_size: int = Field(..., ge=1, description="Number of sentiment observations used")
 
     @model_validator(mode="after")
@@ -92,3 +93,4 @@ class MarketEstimate(BaseModel):
 
     def to_dict(self) -> dict:
         return self.model_dump(mode="json")
+
