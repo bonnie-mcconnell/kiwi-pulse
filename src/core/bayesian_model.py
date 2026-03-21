@@ -113,6 +113,8 @@ def estimate_market(sentiments: list[float]) -> MarketEstimate:
     # interval can legitimately exceed this with strong or sparse data.
     # We soft-clamp and log a warning so callers are aware rather than
     # silently truncating valid uncertainty information.
+    # We soft-clamp with logging to preserve statistical correctness 
+    # internally while preventing invalid outputs externally
     if lower < -1.0 or upper > 1.0:
         logger.warning(
             "Credible interval [%.3f, %.3f] extends outside [-1, 1]. "
