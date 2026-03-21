@@ -58,6 +58,9 @@ def _score_articles(articles: list[RawTextInput]) -> list[float]:
     Raises HTTP 422 if an individual article fails to score - keeping
     the error at the request boundary rather than leaking internal
     exceptions to the caller.
+
+    Note: This is currently sequential and may be slow for large batches.
+    In production, this would be parallelised (e.g asyncio.gather).
     """
     scores: list[float] = []
 
