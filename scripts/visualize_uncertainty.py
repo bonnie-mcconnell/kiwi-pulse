@@ -85,7 +85,7 @@ ax.axvline(0, color="#cccccc", linewidth=1, linestyle="--", zorder=1)
 
 ax.set_title(
     "Uncertainty Driven by Input Disagreement\n"
-    "Same number of articles — wider spread means wider credible interval",
+    "Same number of articles - wider spread means wider credible interval",
     fontsize=12,
     pad=12,
 )
