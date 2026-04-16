@@ -111,12 +111,12 @@ METRICS = [("coverage", "Coverage", ".3f"),
 for metric_key, metric_label, fmt in METRICS:
     print(f"── {metric_label} (target: coverage≈0.95, width/error: lower=better) ──\n")
     # Header: n values
-    header = f"  {'τ²\\σ':<10}" + "".join(f"  σ={s}" for s in OBS_NOISES)
+    header = ('  ' + 'τ²\σ'.ljust(10)) + "".join(f"  σ={s}" for s in OBS_NOISES)
     sub    = f"  {'':10}" + "".join(
         "  " + "  ".join(f"n={n:2d}" for n in SAMPLE_SIZES)
         for _ in OBS_NOISES
     )
-    col_heads = f"  {'τ²\\σ':<10}"
+    col_heads = ('  ' + 'τ²\σ'.ljust(10))
     for sigma in OBS_NOISES:
         for n in SAMPLE_SIZES:
             col_heads += f"  σ={sigma}/n={n:2d}"

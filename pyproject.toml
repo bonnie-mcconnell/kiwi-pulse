@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "openai",
     "matplotlib",
+    "scipy",
 ]
 
 [project.optional-dependencies]

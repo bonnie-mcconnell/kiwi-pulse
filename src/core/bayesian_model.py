@@ -50,7 +50,7 @@ import logging
 
 import numpy as np
 
-from schema.models import MarketEstimate
+from src.schema.models import MarketEstimate
 
 logger = logging.getLogger(__name__)
 

@@ -33,6 +33,7 @@ import os
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.lines
 import matplotlib.patches as mpatches
 
 from core.bayesian_model import estimate_market
@@ -137,10 +138,10 @@ for ax, case, result in zip(axes, CASES, results):
 
 # shared legend at bottom
 handles = [
-    plt.Line2D([0], [0], color=INTERVAL_COLOR, linewidth=3, label="95% credible interval"),
+    matplotlib.lines.Line2D([0], [0], color=INTERVAL_COLOR, linewidth=3, label="95% credible interval"),
     plt.scatter([], [], color=INTERVAL_COLOR, s=80, label="Posterior mean"),
     plt.scatter([], [], color=POINT_COLOR, s=60, label="Raw scores"),
-    plt.Line2D([0], [0], color="#aaaaaa", linewidth=1.2,
+    matplotlib.lines.Line2D([0], [0], color="#aaaaaa", linewidth=1.2,
                linestyle=":", label="Prior mean (0)"),
 ]
 fig.legend(

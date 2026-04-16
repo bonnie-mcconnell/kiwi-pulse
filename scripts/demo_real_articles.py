@@ -118,7 +118,7 @@ fig.suptitle(
 )
 
 sim_labels = [f"Sim {i+1}" for i in range(N_SIMS)]
-colors     = plt.cm.Blues(np.linspace(0.45, 0.85, N_SIMS))
+colors     = plt.colormaps["Blues"](np.linspace(0.45, 0.85, N_SIMS))
 
 # Left: posterior means + intervals across sims
 ax = axes[0]
