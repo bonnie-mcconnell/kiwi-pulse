@@ -201,9 +201,6 @@ python scripts/visualize_uncertainty.py
 
 **Source reliability priors** - if Reuters and an anonymous blog both publish articles, they should not carry equal weight. A hierarchical model could learn per-source noise parameters from data.
 
-**Truncated Normal likelihood** - calibration testing reveals 88.9% empirical coverage vs the nominal 95%. The gap is caused by asymmetric clamping of observations near the [-1, 1] boundary. A truncated Normal likelihood would correct this at the cost of losing the closed-form conjugate posterior.
-
-
 ---
 
 ## Limitations
@@ -242,7 +239,7 @@ Results are from synthetic data generated under model assumptions. Performance w
 
 This demonstrates a key property: uncertainty is not just descriptive - it can be used to control risk. The model knows when it doesn't know, and that knowledge is actionable.
 
-This system does not try to be right all the time, it tries to be right when it chooses to act.
+This system does not try to be right all the time - it tries to be right when it chooses to act.
 
 This model is intentionally simple. Its value is not in complexity, but in making uncertainty explicit and usable.
 
