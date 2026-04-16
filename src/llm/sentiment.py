@@ -5,20 +5,17 @@ Converts raw article text into a structured sentiment score.
 
 Design notes
 ------------
-We use OpenAI's `response_format={"type": "json_object"}` to enforce
-structured output rather than parsing free text with regex or split().
-It's more reliable and easier to validate.
+We use OpenAI's response_format json_object to enforce structured output
+rather than parsing free text. More reliable and easier to validate.
 
-The score is a *point estimate only*. Confidence/uncertainty is
-intentionally not derived from the LLM. LLM logit probabilities are
-not exposed here and self-reported confidence is uncalibrated.
+The score is a point estimate only. Confidence is intentionally not
+derived from the LLM — LLM self-reported confidence is uncalibrated.
 Uncertainty is handled downstream by the Bayesian model.
 
 Known limitation
 ----------------
-No retry logic. Transient failures (rate limits, timeouts) raise
-RuntimeError immediately. A production system would add exponential
-backoff via `tenacity` or equivalent.
+No retry logic. Transient failures raise RuntimeError immediately.
+A production system would add exponential backoff via tenacity.
 """
 
 import json
@@ -26,11 +23,21 @@ import os
 
 from openai import OpenAI
 
-from schema.models import RawTextInput, SentimentObservation
+from src.schema.models import RawTextInput, SentimentObservation
 
-_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+MODEL_NAME = "gpt-4o-mini"
 
-MODEL_NAME = "gpt-4o-mini"  # extracted so model swaps are a one-line change
+# Lazy-initialised so importing this module doesn't require OPENAI_API_KEY.
+# Tests that mock _call_llm never touch the client at all.
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    return _client
+
 
 _SYSTEM_PROMPT = """\
 You are a financial sentiment analyser. Your job is to read a news article
@@ -93,22 +100,20 @@ def analyze_sentiment(article: RawTextInput) -> SentimentObservation:
 
 def _call_llm(title: str, content: str) -> str:
     """Make the API call. Isolated so it can be mocked in tests."""
-    response = _client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL_NAME,
-        temperature=0,                  # deterministic: same input, same score
-        timeout=10,                     # prevent indefinite hangs
+        temperature=0,
+        timeout=10,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user",   "content": _USER_TEMPLATE.format(
                 title=title,
-                content=content[:2000],  # guard against token blowout
+                content=content[:2000],
             )},
         ],
     )
 
-    # Defensive access: the API usually guarantees choices[0] exists,
-    # but we check explicitly rather than relying on that assumption.
     if not response.choices or not response.choices[0].message:
         raise RuntimeError("Invalid LLM response structure")
 
@@ -118,9 +123,10 @@ def _call_llm(title: str, content: str) -> str:
 def _parse_and_validate(raw: str) -> tuple[float, str]:
     """
     Parse JSON response and validate fields.
+
+    JSON mode reduces formatting errors but doesn't guarantee correctness.
+    We validate all fields explicitly rather than trusting the model output.
     """
-    # JSON mode reduces formatting errors but doesn't guarantee correctness.
-    # We still validate all fields explicitly.
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
