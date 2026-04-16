@@ -41,10 +41,14 @@ class TestIdenticalScores:
     """All identical scores = zero empirical variance = near-zero observation noise."""
 
     def test_tight_interval(self):
-        # If every article agrees, uncertainty should be low.
+        # If every article agrees, uncertainty should be relatively low -
+        # but NOT near-zero. The VAR_FLOOR (0.10) prevents the model from
+        # claiming false certainty when identical scores could be an
+        # artefact of the LLM repeating itself rather than genuine consensus.
+        # Threshold updated from 0.5 → 0.65 after introducing VAR_FLOOR.
         result = estimate_market([0.6, 0.6, 0.6, 0.6, 0.6])
         width = result.upper_bound - result.lower_bound
-        assert width < 0.5, f"Expected tight interval for identical scores, got {width:.3f}"
+        assert width < 0.65, f"Expected moderately tight interval for identical scores, got {width:.3f}"
 
     def test_mean_near_score(self):
         # With many identical observations, posterior should commit to that value.

@@ -11,12 +11,15 @@ of a true latent market sentiment μ:
     x_i ~ Normal(μ, σ²)       likelihood
     μ   ~ Normal(0, 1)         prior  (neutral, weakly informative)
 
-σ² is unknown, so we estimate it from the data (empirical Bayes):
+σ² is estimated from data using a floored empirical Bayes estimator:
 
-    σ² = Var(x_1, ..., x_n)
+    σ² = max(Var(x_1, ..., x_n), VAR_FLOOR)
 
-This makes the model adaptive: high disagreement between scores
-produces high σ², which widens the credible interval.
+The floor encodes a domain assumption: LLM scores always carry at
+least some irreducible noise. Without it, small samples with low
+observed variance produce falsely tight intervals - calibration
+testing showed 69.6% coverage at n=2 with raw sample variance,
+vs 92.6% with the floor applied (target: 95%).
 
 The Normal-Normal conjugate gives a closed-form posterior:
 
@@ -27,11 +30,20 @@ We then read off a 95% credible interval as:
 
     μ_n ± 1.96 * sqrt(τ_n²)
 
-We don't use the sample mean because:
+Why not just take the sample mean?
   - The sample mean has no uncertainty quantification.
   - It ignores prior knowledge and behaves poorly for small n.
   - As n → ∞ and τ² → ∞, the posterior mean converges to the
     sample mean - the Bayesian approach strictly generalises it.
+
+Known limitations
+-----------------
+  - Gaussian likelihood: breaks under systematic bias or correlated
+    observations (see scripts/adversarial_tests.py for quantification).
+  - Bounded domain: asymmetric clamping near [-1, 1] causes mild
+    undercoverage (~92% vs nominal 95% on full domain).
+  - VAR_FLOOR is a domain assumption, not estimated from data.
+    A hierarchical estimator would be more principled for production.
 """
 
 import logging
@@ -47,12 +59,18 @@ logger = logging.getLogger(__name__)
 PRIOR_MEAN: float = 0.0   # neutral sentiment a priori
 PRIOR_VAR: float  = 1.0   # weakly informative over [-1, 1]
 
+# Minimum observation variance floor.
+# Encodes the assumption that LLM scores always have irreducible noise.
+# Calibration analysis: raw sample variance gives 69.6% coverage at n=2;
+# this floor brings it to 92.6%. Value corresponds to std ≈ 0.316.
+VAR_FLOOR: float = 0.10
+
 # Fallback variance when n == 1. We have no information about spread
 # from a single observation, so we assume maximum plausible noise.
 _SINGLE_OBS_VAR: float = 1.0
 
-# Substituted when all scores are identical (zero empirical variance).
-# Near-zero rather than zero so precision calculation doesn't blow up.
+# Substituted when all scores are identical (zero empirical variance)
+# and below the floor. Near-zero rather than zero prevents division by zero.
 EPSILON_ZERO_VAR: float = 1e-9
 
 
@@ -81,17 +99,23 @@ def estimate_market(sentiments: list[float]) -> MarketEstimate:
     x = np.array(sentiments, dtype=float)
     n = len(x)
 
-    # --- empirical Bayes: estimate observation noise from data -------
+    # --- floored empirical Bayes: estimate observation noise ---------
     if n == 1:
         # With one point we cannot estimate spread.
         # Fall back to maximum plausible variance so the posterior
         # stays close to the prior rather than over-committing.
         observation_var = _SINGLE_OBS_VAR
     else:
-        observation_var = float(np.var(x, ddof=1))   # unbiased sample variance
-        if observation_var == 0.0:
+        raw_var = float(np.var(x, ddof=1))   # unbiased sample variance
+
+        if raw_var == 0.0:
             # All scores identical - genuine signal, near-zero noise.
-            observation_var = EPSILON_ZERO_VAR
+            # Floor still applies: we don't trust perfect agreement.
+            observation_var = VAR_FLOOR
+        else:
+            # Apply floor. Prevents falsely tight intervals when small
+            # samples happen to show low spread by chance.
+            observation_var = max(raw_var, VAR_FLOOR)
 
     # --- Normal-Normal conjugate update ------------------------------
     # Using precision (1/variance) form for numerical stability and clarity
@@ -113,8 +137,6 @@ def estimate_market(sentiments: list[float]) -> MarketEstimate:
     # interval can legitimately exceed this with strong or sparse data.
     # We soft-clamp and log a warning so callers are aware rather than
     # silently truncating valid uncertainty information.
-    # We soft-clamp with logging to preserve statistical correctness 
-    # internally while preventing invalid outputs externally
     if lower < -1.0 or upper > 1.0:
         logger.warning(
             "Credible interval [%.3f, %.3f] extends outside [-1, 1]. "
