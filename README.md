@@ -201,6 +201,9 @@ python scripts/visualize_uncertainty.py
 
 **Source reliability priors** - if Reuters and an anonymous blog both publish articles, they should not carry equal weight. A hierarchical model could learn per-source noise parameters from data.
 
+**Truncated Normal likelihood** - calibration testing reveals 88.9% empirical coverage vs the nominal 95%. The gap is caused by asymmetric clamping of observations near the [-1, 1] boundary. A truncated Normal likelihood would correct this at the cost of losing the closed-form conjugate posterior.
+
+
 ---
 
 ## Limitations
