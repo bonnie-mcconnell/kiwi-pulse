@@ -5,7 +5,7 @@ Evaluates whether the Bayesian credible intervals are well-calibrated,
 and isolates boundary exposure as the causal mechanism of miscalibration.
 
 ALL THREE EXPERIMENTS USE CLIPPED DATA.
-The difference is how often clipping is asymmetric — i.e. how often
+The difference is how often clipping is asymmetric - i.e. how often
 the true μ is close enough to a boundary that noise gets truncated
 in one direction more than the other.
 
@@ -15,17 +15,17 @@ the nominal 95%.
 
 THREE REGIMES
 -------------
-A) Interior μ   — μ ~ Uniform(-0.6, 0.6), noise_std=0.4
+A) Interior μ   - μ ~ Uniform(-0.6, 0.6), noise_std=0.4
    True sentiment kept away from boundaries.
    Clipping occurs but is roughly symmetric.
    → Coverage should be close to 0.95.
 
-B) Full domain  — μ ~ Uniform(-1.0, 1.0), noise_std=0.4
+B) Full domain  - μ ~ Uniform(-1.0, 1.0), noise_std=0.4
    True sentiment can land near boundaries.
    Clipping is frequently asymmetric.
    → Coverage drops meaningfully below 0.95.
 
-C) Strong clipping regime — μ ~ Uniform(-0.95, 0.95), noise_std=0.6
+C) Strong clipping regime - μ ~ Uniform(-0.95, 0.95), noise_std=0.6
    Higher noise means more observations hit the boundary.
    Even μ values away from the edges produce asymmetric truncation.
    → Coverage degrades further.
@@ -67,7 +67,7 @@ def run_experiment(mu_lo: float, mu_hi: float, noise_std: float, seed: int) -> d
     """
     Run N_RUNS calibration trials and return coverage metrics.
 
-    Both bounds and clipping are always applied — the only variable
+    Both bounds and clipping are always applied - the only variable
     across experiments is how much boundary interaction occurs.
 
     Parameters
@@ -148,14 +148,14 @@ if coverages[0] > coverages[1] > coverages[2]:
     print("Note: Gaussian likelihood mismatch and empirical Bayes σ² instability also")
     print("      contribute to miscalibration but are not isolated by this experiment.")
 else:
-    print("\nConclusion: results non-monotonic — check experiment parameters.")
+    print("\nConclusion: results non-monotonic - check experiment parameters.")
 
 # ----- plot ----------------------------------------------------------
 
 fig, axes = plt.subplots(1, 3, figsize=(13, 4.5), sharey=True)
 fig.suptitle(
     "Calibration Across Boundary Exposure Regimes\n"
-    "All experiments use clipped data — boundary interaction is the primary variable",
+    "All experiments use clipped data - boundary interaction is the primary variable",
     fontsize=12, fontweight="bold",
 )
 
