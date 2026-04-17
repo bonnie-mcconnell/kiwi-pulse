@@ -1,40 +1,38 @@
-# KiwiPulse - Probabilistic Market Intelligence Engine
+# KiwiPulse
 
-Most sentiment pipelines return a number. This one returns a number, a confidence interval, and a principled measure of how much to trust it. Instead of averaging scores, this models uncertainty explicitly.
+A Bayesian system for aggregating noisy sentiment signals with explicit uncertainty quantification.
 
----
-
-## The Problem With Naive Sentiment Analysis
-
-The standard approach:
-
-```
-articles → LLM → average score → "market is bullish: 0.72"
-```
-
-This fails in three ways:
-
-- **No uncertainty.** A score from 2 articles and a score from 50 articles look identical.
-- **No disagreement signal.** Sources that wildly contradict each other produce the same output as sources that agree - just noisier.
-- **Uncalibrated confidence.** LLMs will report confidence scores, but those scores are not statistically meaningful.
-
-The result is false precision: a single number that hides everything you actually need to know.
+Most sentiment pipelines return a score. This one returns a score, a 95% credible interval, and a measure of how much to trust it - derived from disagreement between sources, not added as an afterthought.
 
 ---
 
-## The Solution
+## The problem
 
-Treat each LLM sentiment score as a **noisy observation of a latent true signal**, and use Bayesian inference to recover that signal with explicit uncertainty.
+The standard pipeline:
 
-**Model:**
+```
+articles → LLM → average score → 0.72
+```
+
+A score from two articles looks identical to one from fifty. Sources that contradict each other produce the same output as sources that agree, just noisier. And LLM confidence scores aren't calibrated - they're guesses dressed as probabilities.
+
+The result is false precision.
+
+---
+
+## How it works
+
+Each LLM-produced sentiment score is treated as a noisy observation of a true latent signal μ:
 
 ```
 x_i ~ Normal(μ, σ²)    - each score is a noisy measurement
-μ   ~ Normal(0, 1)     - prior: neutral, weakly informative
-σ²  = Var(x_1..x_n)   - estimated from data (empirical Bayes)
+μ   ~ Normal(0, 1)     - prior: neutral before seeing evidence
+σ²  = max(Var(scores), 0.10)   - estimated from data, floored
 ```
 
-**Output:**
+The Normal-Normal conjugate gives a closed-form posterior. No sampling, no black box. High disagreement between sources → high σ² → wider interval. The uncertainty is a direct consequence of the data.
+
+**Output for each batch of articles:**
 
 ```json
 {
@@ -46,13 +44,25 @@ x_i ~ Normal(μ, σ²)    - each score is a noisy measurement
 }
 ```
 
-A point estimate, a 95% credible interval, and a variance - all derived analytically, no sampling required.
+---
+
+## Key insight
+
+Uncertainty is not added after the fact - it emerges directly from disagreement in the data.
 
 ---
 
-## Key Insight
+## Decision rule
 
-Uncertainty is not added after the fact - it emerges directly from disagreement in the data.
+```
+lower_bound > 0  → predict positive
+upper_bound < 0  → predict negative
+otherwise        → abstain
+```
+
+The model doesn't try to be right all the time. It tries to be right when it chooses to act.
+
+Simulation across 5,000 runs: 99.2% accuracy when acting, 40% abstain rate - versus 92% accuracy with 0% abstain for a baseline that always commits. The tradeoff is explicit and tunable.
 
 ---
 
@@ -62,196 +72,113 @@ Uncertainty is not added after the fact - it emerges directly from disagreement 
 POST /analyze
       │
       ▼
- RawTextInput[]          ← Pydantic v2, strict validation, UTC timestamps
+RawTextInput[]        ← Pydantic v2, strict validation, UTC timestamps
       │
       ▼
- LLM Scoring             ← GPT-4o-mini, temperature=0, JSON mode enforced
- (per article)              score ∈ [-1, 1], validated explicitly
+LLM Scoring           ← GPT-4o-mini, temperature=0, JSON mode
+(per article)            score ∈ [-1, 1], validated explicitly
       │
       ▼
- Bayesian Update         ← Normal-Normal conjugate, closed-form posterior
- estimate_market()          empirical Bayes for σ², soft-clamped output
+Bayesian Update       ← Normal-Normal conjugate, closed-form posterior
+estimate_market()        floored empirical Bayes for σ²
       │
       ▼
- MarketEstimate          ← mean, lower_bound, upper_bound, variance, n
+MarketEstimate        ← mean, lower_bound, upper_bound, variance, n
 ```
 
 ```
 src/
-├── core/bayesian_model.py   # inference logic - the statistical core
-├── llm/sentiment.py         # LLM boundary - isolated and mockable
-├── schema/models.py         # data contracts - Pydantic v2
-├── api/routes.py            # FastAPI - request validation + error routing
+├── core/bayesian_model.py         # inference - the statistical core
+├── core/truncated_normal_model.py # grid-integration alternative (see analysis)
+├── llm/sentiment.py               # LLM boundary - isolated and mockable
+├── schema/models.py               # data contracts - Pydantic v2
+├── api/routes.py                  # FastAPI - validation + error routing
 └── main.py
 ```
 
 ---
 
-## Key Technical Decisions
+## Key engineering decisions
 
-**Empirical Bayes for σ²**
-Rather than fixing observation noise, we estimate it from the sample variance of incoming scores. High disagreement between articles → high σ² → lower data precision → wider credible interval. The model is uncertainty-aware by construction.
+**Variance floor.** Raw sample variance at n=2 gave 69.6% empirical coverage vs the 95% nominal target. A floor of 0.10 brings this to 92.6%. Domain justification: LLM scores always carry some irreducible noise.
 
-**No LLM confidence scores**
-LLM self-reported confidence is not calibrated. We do not use it. Uncertainty is derived entirely from the statistical distribution of scores. This is explicitly documented in the codebase and a deliberate design choice.
+**No LLM confidence scores.** LLM self-reported confidence isn't calibrated. Uncertainty comes entirely from the statistical distribution of scores.
 
-**Normal-Normal conjugate**
-Gives a closed-form posterior - no MCMC, no sampling, no black box. The update equations are four lines of arithmetic. Every output is fully explainable.
+**Isolated LLM boundary.** `_call_llm` is separated from `_parse_and_validate`. The parsing logic is fully unit-testable without API calls.
 
-**Soft clamping at boundaries**
-The posterior interval can legitimately exceed [-1, 1] with sparse or extreme data. We log a warning and soft-clamp rather than silently truncating, preserving statistical honesty while enforcing domain constraints at the API boundary.
+**422 vs 503.** Parsing failures return 422 (bad input). API failures return 503 (dependency down). Different failure modes, different codes.
 
-**Isolated LLM boundary**
-`_call_llm` is separated from `_parse_and_validate`. This means the entire parsing and validation logic is unit-testable without any API calls or mocking the OpenAI client.
-
-**422 vs 503 error routing**
-Parsing failures return 422 (bad input or unexpected LLM output). API-level failures return 503 (dependency unavailable). These are different failure modes and should not be conflated.
+**Lazy client initialisation.** The OpenAI client is initialised on first use, so importing the module doesn't require `OPENAI_API_KEY` - tests run without it.
 
 ---
 
-## Example
+## What the analysis found
 
-**Request:**
-```bash
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{
-    "articles": [
-      {
-        "title": "Dairy prices surge on strong Chinese demand",
-        "content": "GlobalDairyTrade index rose 4.2% overnight...",
-        "source": "Reuters",
-        "timestamp": "2025-03-15T08:00:00Z"
-      },
-      {
-        "title": "Fonterra revises forecast amid supply concerns",
-        "content": "Fonterra lowered its farmgate milk price...",
-        "source": "NZHerald",
-        "timestamp": "2025-03-15T09:30:00Z"
-      }
-    ]
-  }'
-```
+**Calibration** (`scripts/calibration_test.py`): empirical coverage sits at 88–92% vs the 95% nominal target. Three causes: asymmetric clamping near ±1, Gaussian likelihood mismatch on bounded data, and empirical Bayes σ² instability at small n. All three are quantified.
 
-**Response:**
-```json
-{
-  "estimate": {
-    "mean": 0.312,
-    "lower_bound": -0.089,
-    "upper_bound": 0.713,
-    "variance": 0.041,
-    "sample_size": 2
-  },
-  "observations": 2
-}
-```
+**Adversarial testing** (`scripts/adversarial_tests.py`): systematic scoring bias drops coverage to 35%. Correlated observations (AR ρ=0.7) drop it to 52%. The model is surprisingly robust to mixture noise and heavy tails - σ² adapts automatically. These are the real failure modes in production.
 
-The wide interval reflects low sample size - exactly correct behavior with two articles.
+**Truncated Normal** (`scripts/truncated_normal_comparison.py`): the theoretically correct fix for bounded data requires numerical grid integration since conjugacy breaks. After implementing it, calibration comparison showed no meaningful improvement over the floored Gaussian - the variance floor had already addressed the primary failure mode. The implementation is correct; the result is informative.
+
+**Sensitivity analysis** (`scripts/sensitivity_analysis.py`): coverage tested across τ² ∈ {0.25, 1.0, 4.0}, σ ∈ {0.2, 0.4, 0.6}, n ∈ {5, 10, 20}. Prior choice varies coverage by less than 0.2pp across a 16× range. Data dominates at n ≥ 5.
+
+**Real-world validation** (`scripts/real_world_validation.py`): 30 trading days Jan–Feb 2025, real SPY returns, hand-curated headlines. Aggregation vs single headline: +3.4pp accuracy. Abstain rule vs naive mean: +11.4pp at 43% coverage cost. Caveat: scores were hand-assigned with date knowledge - possible look-ahead bias. Proof-of-concept, not a backtest.
 
 ---
 
 ## Visualizations
 
-**Posterior convergence** - credible interval narrows as n increases:
+Posterior convergence - credible interval narrows as n grows:
 
-![Convergence](outputs/convergence.png)
+![Convergence](scripts/convergence.png)
 
-The posterior starts near the prior (0.0) and converges toward the true signal as data accumulates. Log-scaled x-axis shows the dramatic early convergence clearly.
+Uncertainty from disagreement - same n, different spread:
 
-**Uncertainty from disagreement** - same n, different spread:
+![Uncertainty](scripts/uncertainty.png)
 
-![Uncertainty](outputs/uncertainty.png)
+Adversarial failure modes - where the model breaks:
 
-Both datasets have five articles. The consensus case produces a tight interval; the disagreement case produces a wide one. The difference is driven entirely by σ² - the model correctly represents that conflicting sources should produce lower confidence.
+![Adversarial](scripts/adversarial_tests.png)
 
 ---
 
-## Running Locally
+## Running locally
 
 ```bash
-# Install
-pip install fastapi uvicorn openai pydantic numpy
+git clone https://github.com/bonnie-mcconnell/kiwi-pulse
+cd kiwi-pulse
+pip install -e ".[dev]"
 
-# Set API key
-export OPENAI_API_KEY=your_key_here
+# Tests - no API key required
+pytest tests/ -v
 
-# Run
+# API (requires OPENAI_API_KEY)
+export OPENAI_API_KEY=your_key
 uvicorn main:app --reload
 
-# Tests (no API key required)
-pytest tests/
-
-# Visualizations
+# Analysis scripts - no API key needed
+python scripts/demo_real_articles.py
 python scripts/visualize_convergence.py
-python scripts/visualize_uncertainty.py
+python scripts/adversarial_tests.py
+python scripts/real_world_validation.py
 ```
 
----
-
-## What I'd Build Next
-
-**Calibration validation** - run the model against historical data with known outcomes and check whether the 95% credible interval actually contains the true value ~95% of the time. This is the difference between a model that *claims* uncertainty and one that *earns* it.
-
-**Prior sensitivity analysis** - show how results change under different prior choices (τ² = 0.25 vs 1.0 vs 4.0). Demonstrates awareness of prior dependency and builds trust in the chosen hyperparameters.
-
-**Parallel LLM scoring** - current implementation is sequential; latency scales linearly with article count. `asyncio.gather` would parallelise the independent API calls with minimal structural change.
-
-**Temporal weighting** - recent articles should contribute more signal than older ones. A natural extension is exponential decay on the likelihood weights, which preserves the conjugate structure.
-
-**Source reliability priors** - if Reuters and an anonymous blog both publish articles, they should not carry equal weight. A hierarchical model could learn per-source noise parameters from data.
+See `scripts/README.md` for the full list and what each script shows.
 
 ---
 
 ## Limitations
 
-- Assumes Gaussian noise - may break under multimodal sentiment
-- Treats all sources equally (no credibility weighting)
-- Empirical Bayes σ² can be unstable for very small n
-- LLM scores themselves are not validated against ground truth
-- Calibration testing shows ~89% empirical coverage vs the nominal 95%, caused by asymmetric clamping near the domain boundaries
-- Miscalibration is partly structural due to bounded domain and Gaussian assumptions - boundary interaction, likelihood mismatch, and empirical Bayes σ² instability all contribute
+- Gaussian likelihood assumes unimodal symmetric noise - wrong near boundaries and wrong when sources are correlated
+- Treats all sources equally - no credibility weighting
+- Variance floor is a domain assumption, not estimated from data
+- Real-world validation used hand-scored data; look-ahead bias cannot be ruled out
+- Calibration gap (~89% vs 95% nominal) is partly structural - bounded domain plus Gaussian assumptions
 
 This is a statistical aggregation layer, not a ground-truth oracle.
 
 ---
 
-## Does This Actually Help Decisions?
+## Further reading
 
-We simulated a decision system where predictions are only made when the 95% credible interval does not cross zero - i.e. when the model is confident enough to commit.
-
-```
-Decision rule:
-  lower_bound > 0  → predict positive
-  upper_bound < 0  → predict negative
-  otherwise        → abstain
-```
-
-Result across 2,000 simulated runs:
-
-| | Bayesian (uncertainty-aware) | Baseline (always commits) |
-|---|---|---|
-| Accuracy when deciding | **near-perfect under simulation** | 95.0% |
-| Abstain rate | 22.6% | 0% |
-| False positives | 3 | 50 |
-
-Results are from synthetic data generated under model assumptions. Performance will degrade on real-world data with model mismatch - the calibration analysis shows this explicitly.
-
-This demonstrates a key property: uncertainty is not just descriptive - it can be used to control risk. The model knows when it doesn't know, and that knowledge is actionable.
-
-This system does not try to be right all the time - it tries to be right when it chooses to act.
-
-This model is intentionally simple. Its value is not in complexity, but in making uncertainty explicit and usable.
-
----
-
-## Why Bayesian Over a Simple Average?
-
-| | Sample Mean | Posterior Mean |
-|---|---|---|
-| Uncertainty estimate | ✗ | ✓ |
-| Small sample behavior | Overconfident | Pulled toward prior |
-| Disagreement signal | Lost | Encoded in σ² |
-| Explainability | Trivial | Fully analytical |
-
-As n → ∞ with an uninformative prior, the posterior mean converges to the sample mean. The Bayesian approach strictly generalises the naive approach and is never worse.
+`WRITEUP.md` covers the full technical arc: what was tried, what failed, why the truncated Normal didn't help, and what the real-world results actually mean.
