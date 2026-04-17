@@ -13,9 +13,9 @@ Single endpoint: POST /analyze
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.core.bayesian_model import estimate_market
-from src.llm.sentiment import analyze_sentiment
-from src.schema.models import MarketEstimate, RawTextInput
+from core.bayesian_model import estimate_market
+from llm.sentiment import analyze_sentiment
+from schema.models import MarketEstimate, RawTextInput
 
 router = APIRouter()
 

@@ -57,7 +57,7 @@ import logging
 import numpy as np
 from scipy.special import ndtr   # CDF of standard Normal
 
-from src.schema.models import MarketEstimate
+from schema.models import MarketEstimate
 
 logger = logging.getLogger(__name__)
 

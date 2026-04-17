@@ -9,7 +9,7 @@ We use OpenAI's response_format json_object to enforce structured output
 rather than parsing free text. More reliable and easier to validate.
 
 The score is a point estimate only. Confidence is intentionally not
-derived from the LLM — LLM self-reported confidence is uncalibrated.
+derived from the LLM - LLM self-reported confidence is uncalibrated.
 Uncertainty is handled downstream by the Bayesian model.
 
 Known limitation
@@ -23,7 +23,7 @@ import os
 
 from openai import OpenAI
 
-from src.schema.models import RawTextInput, SentimentObservation
+from schema.models import RawTextInput, SentimentObservation
 
 MODEL_NAME = "gpt-4o-mini"
 
